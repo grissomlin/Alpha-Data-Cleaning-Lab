@@ -10,63 +10,85 @@ class AlphaCoreEngine:
 
     def execute(self):
         """
-        執行精煉任務並輸出執行日誌
+        執行精煉任務，產出週期分析所需的所有欄位
         """
         # 1. 讀取數據
-        print(f"--- 🚀 啟動 {self.market_abbr} 精煉任務 ---")
         self.df = pd.read_sql("SELECT * FROM cleaned_daily_base", self.conn)
         
         if self.df.empty:
-            msg = f"❌ Market {self.market_abbr}: 資料表 cleaned_daily_base 是空的，跳過計算。"
-            print(msg)
-            return msg
+            return f"Market {self.market_abbr}: No data found."
 
-        print(f"📈 讀取成功：共 {len(self.df)} 筆原始數據")
-
-        # 2. 排序與套用市場規則 (判定 is_limit_up)
+        # 2. 排序 (日期必須正確排序)
         self.df = self.df.sort_values(['StockID', '日期']).reset_index(drop=True)
+        self.df['日期'] = pd.to_datetime(self.df['日期'])
+        
+        # 3. 套用漲停判定規則 (來自 market_rules.py)
         self.df = self.rules.apply(self.df)
-        print(f"⚖️ 市場規則套用完成，目前漲停標記總數: {self.df['is_limit_up'].sum()}")
         
-        # 3. 核心計算 (連板歸零邏輯就在這裡)
-        print("🧮 正在計算報酬率、連板次數與風險指標...")
-        self.calculate_returns()
-        self.calculate_sequence_counts() 
-        self.calculate_risk_metrics()
+        # 4. 執行核心計算
+        self.calculate_returns()           # 基礎報酬
+        self.calculate_rolling_returns()    # 5D, 20D, 200D 滾動報酬
+        self.calculate_period_returns()     # 周、月、年累計 (修正報錯關鍵)
+        self.calculate_sequence_counts()    # 連板計數
+        self.calculate_risk_metrics()       # 波動率與回撤
         
-        # 4. 寫回資料庫
-        print(f"💾 正在將精煉數據寫回 {self.market_abbr} 資料庫...")
+        # 5. 寫回資料庫
         self.df.to_sql("cleaned_daily_base", self.conn, if_exists="replace", index=False)
-        
-        # 5. 構建總結訊息
-        limit_up_total = int(self.df['is_limit_up'].sum())
-        max_seq = int(self.df['Seq_LU_Count'].max())
         
         summary_text = (
             f"✅ {self.market_abbr} 精煉完成！\n"
             f"📊 總筆數: {len(self.df)}\n"
-            f"📈 漲停總數: {limit_up_total}\n"
-            f"🚀 最大連板: {max_seq}\n"
+            f"📈 漲停總數: {int(self.df['is_limit_up'].sum())}\n"
         )
-        print(summary_text)
         return summary_text
 
     def calculate_returns(self):
-        # 確保基準是昨日收盤
         self.df['Prev_Close'] = self.df.groupby('StockID')['收盤'].shift(1)
         self.df['Ret_Day'] = (self.df['收盤'] / self.df['Prev_Close']) - 1
         self.df['Overnight_Alpha'] = (self.df['開盤'] / self.df['Prev_Close']) - 1
         self.df['Next_1D_Max'] = (self.df['最高'] / self.df['Prev_Close']) - 1
 
+    def calculate_rolling_returns(self):
+        """
+        計算 5D, 20D, 200D 滾動報酬
+        """
+        for days in [5, 20, 200]:
+            col_name = f'Ret_{days}D'
+            self.df[col_name] = self.df.groupby('StockID')['收盤'].transform(
+                lambda x: x / x.shift(days) - 1
+            )
+
+    def calculate_period_returns(self):
+        """
+        計算周、月、年累計漲跌幅 (對應 Period_Analysis 的需求)
+        """
+        # 確保日期格式正確
+        dt = self.df['日期']
+        
+        # 建立週期分組 (週、月、年)
+        self.df['week_grp'] = dt.dt.to_period('W').astype(str)
+        self.df['month_grp'] = dt.dt.to_period('M').astype(str)
+        self.df['year_grp'] = dt.dt.year.astype(str)
+
+        # 計算週期累計：(今日收盤 / 該週期第一天收盤) - 1
+        def get_cum_ret(group_col):
+            first_closes = self.df.groupby(['StockID', group_col])['收盤'].transform('first')
+            return (self.df['收盤'] / first_closes) - 1
+
+        self.df['周累计漲跌幅(本周开盘)'] = get_cum_ret('week_grp')
+        self.df['月累计漲跌幅(本月开盘)'] = get_cum_ret('month_grp')
+        self.df['年累計漲跌幅(本年开盘)'] = get_cum_ret('year_grp')
+
+        # 移除暫時的輔助欄位
+        self.df.drop(['week_grp', 'month_grp', 'year_grp'], axis=1, inplace=True)
+
     def calculate_sequence_counts(self):
         def get_sequence(series):
             blocks = (series != series.shift()).cumsum()
-            cum_counts = series.groupby(blocks).cumcount() + 1
-            return series * cum_counts
+            return series * (series.groupby(blocks).cumcount() + 1)
         self.df['Seq_LU_Count'] = self.df.groupby('StockID')['is_limit_up'].transform(get_sequence)
 
     def calculate_risk_metrics(self):
-        # 20日波動率與回撤
         self.df['volatility_20d'] = self.df.groupby('StockID')['Ret_Day'].transform(
             lambda x: x.rolling(window=20).std() * (252**0.5)
         )
