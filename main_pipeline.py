@@ -14,19 +14,10 @@ from core_engine import AlphaCoreEngine
 class AlphaDataPipeline:
     def __init__(self, market_abbr):
         self.market_abbr = market_abbr.upper()
-        # 符合 YAML 規範的檔名格式
+        # 自動生成的檔名：例如 tw_stock_warehouse.db
         self.db_name = f"{self.market_abbr.lower()}_stock_warehouse.db"
         self.creds = self._load_credentials()
         self.service = build('drive', 'v3', credentials=self.creds)
-        
-        self.file_id_map = {
-            "TW": os.environ.get("TW_DB_ID"),
-            "US": os.environ.get("US_DB_ID"),
-            "JP": os.environ.get("JP_DB_ID"),
-            "HK": os.environ.get("HK_DB_ID"),
-            "KR": os.environ.get("KR_DB_ID"),
-            "CN": os.environ.get("CN_DB_ID"),
-        }
 
     def _load_credentials(self):
         creds_json = os.environ.get("GDRIVE_SERVICE_ACCOUNT")
@@ -34,26 +25,39 @@ class AlphaDataPipeline:
             raise ValueError("❌ 找不到環境變數: GDRIVE_SERVICE_ACCOUNT")
         return Credentials.from_service_account_info(json.loads(creds_json))
 
+    def find_file_id_by_name(self, filename):
+        """
+        🚀 恢復自動化：透過檔名在 Google Drive 搜尋檔案 ID
+        """
+        query = f"name = '{filename}' and trashed = false"
+        results = self.service.files().list(q=query, fields="files(id, name)").execute()
+        files = results.get('files', [])
+        if not files:
+            raise ValueError(f"❌ 在雲端找不到檔案: {filename}")
+        return files[0]['id']
+
     def download_db(self):
-        file_id = self.file_id_map.get(self.market_abbr)
-        if not file_id:
-            raise ValueError(f"❌ 找不到市場 {self.market_abbr} 的 File ID。請檢查 Secrets 設定。")
-            
-        print(f"📥 正在下載 {self.market_abbr} 資料庫...")
+        # 自動找 ID
+        file_id = self.find_file_id_by_name(self.db_name)
+        
+        print(f"📥 偵測到雲端檔案 ID: {file_id}，開始下載...")
         request = self.service.files().get_media(fileId=file_id)
         fh = io.FileIO(self.db_name, 'wb')
         downloader = MediaIoBaseDownload(fh, request)
         done = False
         while not done:
             status, done = downloader.next_chunk()
-        print(f"✅ {self.db_name} 下載完成")
+        print(f"✅ {self.db_name} 下載成功")
 
     def upload_db(self):
-        file_id = self.file_id_map.get(self.market_abbr)
+        # 自動找 ID
+        file_id = self.find_file_id_by_name(self.db_name)
+        
+        # 🚀 保留解決美國大檔案的 Resumable 技術
         media = MediaFileUpload(self.db_name, mimetype='application/octet-stream', resumable=True)
         request = self.service.files().update(fileId=file_id, media_body=media)
         
-        print(f"📤 正在上傳 {self.market_abbr} (Resumable)...")
+        print(f"📤 正在同步回雲端 (可續傳模式)...")
         response = None
         while response is None:
             status, response = request.next_chunk()
@@ -72,12 +76,10 @@ class AlphaDataPipeline:
             
             self.upload_db()
             
-            # 💡 重要：產出符合 YAML Artifact 規範的檔名
+            # 生成摘要供報告使用
             summary_file = f"summary_{self.market_abbr.lower()}_stock_warehouse.txt"
             with open(summary_file, "w", encoding="utf-8") as f:
                 f.write(str(summary_msg))
-            print(f"📄 摘要已存至 {summary_file}")
-            
             return summary_msg
         except Exception as e:
             if conn: conn.close()
@@ -86,6 +88,7 @@ class AlphaDataPipeline:
 if __name__ == "__main__":
     target_market = os.environ.get("MARKET_TYPE")
     if not target_market:
+        # 如果沒有設定變數，嘗試從 matrix 指令抓取（這對應你的 YAML 改動）
         print("❌ 錯誤：未設定 MARKET_TYPE")
         exit(1)
     
