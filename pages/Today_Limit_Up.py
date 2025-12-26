@@ -111,8 +111,19 @@ try:
                         target_model = next((c for c in ['models/gemini-1.5-flash', 'gemini-1.5-flash', 'models/gemini-pro'] if c in available), available[0])
                         
                         model = genai.GenerativeModel(target_model)
-                        prompt = f"""分析股票 {selected_label}：產業為{stock_detail['Sector']}，今日為第{stock_detail['Seq_LU_Count']}天漲停。歷史漲停次數{bt['total_lu']}，隔日開盤溢價均值{(bt['avg_open'] or 0)*100:.2f}%。請分析其概念股題材、今日漲停原因及明日續航力。"""
+                        prompt = f"""
+                        分析股票 {selected_label}：
+                        - 產業板塊：{stock_detail['Sector']}
+                        - 今日表現：第 {stock_detail['Seq_LU_Count']} 天漲停
+                        - 歷史數據：漲停次數 {bt['total_lu']} 次，隔日開盤平均溢價 {(bt['avg_open'] or 0)*100:.2f}%
+                        - 同產業/概念股參考：{related_stocks_str}
                         
+                        請針對以下重點進行分析：
+                        1. 該公司的核心概念股題材。
+                        2. 今日漲停的原因（結合同族群表現判斷是個股因素還是族群集體噴發）。
+                        3. 列出上述參考清單中，哪些公司具備聯動性。
+                        4. 評估明日的續航力與操作策略。
+                        """                 
                         with st.spinner(f"AI 解析中 (使用 {target_model})..."):
                             response = model.generate_content(prompt)
                             st.info(f"### 🤖 AI 診斷結果")
