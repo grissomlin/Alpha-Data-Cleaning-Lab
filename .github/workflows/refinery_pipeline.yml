@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       manual_market:
-        description: '選擇要手動執行的市場 (選 all 則執行六國並行)'
+        description: '選擇手動執行的市場 (選 all 則執行六國)'
         required: true
         default: 'all'
         type: choice
@@ -25,11 +25,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # 這裡的邏輯：如果手動選 all，就跑陣列裡的所有國家；如果選了特定國家，就只跑那一台機器
-        market_db: >-
-          ${{ github.event.inputs.manual_market == 'all' || github.event_name == 'schedule' 
-          ? '["tw_stock_warehouse", "jp_stock_warehouse", "us_stock_warehouse", "cn_stock_warehouse", "kr_stock_warehouse", "hk_stock_warehouse"]' 
-          : format('["{0}"]', github.event.inputs.manual_market) }}
+        # 修正語法：使用 fromJSON 和 if 函數
+        market_db: ${{ fromJSON( github.event.inputs.manual_market == 'all' || github.event_name == 'schedule' && '["tw_stock_warehouse", "jp_stock_warehouse", "us_stock_warehouse", "cn_stock_warehouse", "kr_stock_warehouse", "hk_stock_warehouse"]' || format('["{0}"]', github.event.inputs.manual_market) ) }}
     
     steps:
       - name: Checkout Code
@@ -47,7 +44,7 @@ jobs:
         env:
           GDRIVE_SERVICE_ACCOUNT: ${{ secrets.GDRIVE_SERVICE_ACCOUNT }}
         run: |
-          # 從 matrix 提取簡稱 (如 tw_stock_warehouse -> TW)
+          # 提取簡稱並轉大寫
           export MARKET_TYPE=$(echo "${{ matrix.market_db }}" | cut -d'_' -f1 | tr '[:lower:]' '[:upper:]')
           echo "🚀 啟動任務: $MARKET_TYPE"
           python main_pipeline.py
@@ -62,7 +59,7 @@ jobs:
   report-summary:
     needs: refine-markets
     runs-on: ubuntu-latest
-    if: always() # 確保即便有國家失敗，報告還是會發送
+    if: always()
     steps:
       - name: Checkout Code
         uses: actions/checkout@v3
