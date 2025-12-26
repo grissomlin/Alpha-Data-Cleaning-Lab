@@ -1,6 +1,5 @@
 import pandas as pd
 import numpy as np
-import json
 
 class AlphaCoreEngine:
     def __init__(self, conn, rules, market_abbr):
@@ -11,43 +10,49 @@ class AlphaCoreEngine:
 
     def execute(self):
         """
-        執行清洗並回傳 summary
+        執行精煉任務並輸出執行日誌
         """
         # 1. 讀取數據
+        print(f"--- 🚀 啟動 {self.market_abbr} 精煉任務 ---")
         self.df = pd.read_sql("SELECT * FROM cleaned_daily_base", self.conn)
         
         if self.df.empty:
-            return f"Market {self.market_abbr}: No data found."
+            msg = f"❌ Market {self.market_abbr}: 資料表 cleaned_daily_base 是空的，跳過計算。"
+            print(msg)
+            return msg
 
-        # 2. 排序與規則套用
+        print(f"📈 讀取成功：共 {len(self.df)} 筆原始數據")
+
+        # 2. 排序與套用市場規則 (判定 is_limit_up)
         self.df = self.df.sort_values(['StockID', '日期']).reset_index(drop=True)
         self.df = self.rules.apply(self.df)
+        print(f"⚖️ 市場規則套用完成，目前漲停標記總數: {self.df['is_limit_up'].sum()}")
         
-        # 3. 核心計算 (連板歸零邏輯)
+        # 3. 核心計算 (連板歸零邏輯就在這裡)
+        print("🧮 正在計算報酬率、連板次數與風險指標...")
         self.calculate_returns()
         self.calculate_sequence_counts() 
         self.calculate_risk_metrics()
         
         # 4. 寫回資料庫
+        print(f"💾 正在將精煉數據寫回 {self.market_abbr} 資料庫...")
         self.df.to_sql("cleaned_daily_base", self.conn, if_exists="replace", index=False)
         
-        # 5. 構建 summary
-        # 由於 main_pipeline 第 73 行執行 f.write(summary_msg)
-        # 我們回傳一個格式化好的字串，這樣就不會噴 TypeError
+        # 5. 構建總結訊息
         limit_up_total = int(self.df['is_limit_up'].sum())
         max_seq = int(self.df['Seq_LU_Count'].max())
         
         summary_text = (
-            f"🚩 Market: {self.market_abbr}\n"
-            f"📊 Total Records: {len(self.df)}\n"
-            f"📈 Limit Up Count: {limit_up_total}\n"
-            f"🚀 Max Sequence: {max_seq}\n"
-            f"✅ Status: Success\n"
+            f"✅ {self.market_abbr} 精煉完成！\n"
+            f"📊 總筆數: {len(self.df)}\n"
+            f"📈 漲停總數: {limit_up_total}\n"
+            f"🚀 最大連板: {max_seq}\n"
         )
-        
+        print(summary_text)
         return summary_text
 
     def calculate_returns(self):
+        # 確保基準是昨日收盤
         self.df['Prev_Close'] = self.df.groupby('StockID')['收盤'].shift(1)
         self.df['Ret_Day'] = (self.df['收盤'] / self.df['Prev_Close']) - 1
         self.df['Overnight_Alpha'] = (self.df['開盤'] / self.df['Prev_Close']) - 1
@@ -61,6 +66,7 @@ class AlphaCoreEngine:
         self.df['Seq_LU_Count'] = self.df.groupby('StockID')['is_limit_up'].transform(get_sequence)
 
     def calculate_risk_metrics(self):
+        # 20日波動率與回撤
         self.df['volatility_20d'] = self.df.groupby('StockID')['Ret_Day'].transform(
             lambda x: x.rolling(window=20).std() * (252**0.5)
         )
