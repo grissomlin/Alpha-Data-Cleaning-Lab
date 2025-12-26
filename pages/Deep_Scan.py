@@ -41,9 +41,9 @@ try:
     stock_df['display'] = stock_df['symbol'] + " " + stock_df['name']
     
     st.title("🔍 AI 綜合個股深度掃描")
-    st.write("本模組整合 **動能、風險、隔日沖妖性** 三大維度，提供全方位回測。")
+    st.write("本模組整合 **動能、風險、隔日沖妖性、族群概念** 四大維度。")
 
-    selected = st.selectbox("請搜尋代碼或名稱 (例如輸入 1101 或 台泥)", options=stock_df['display'].tolist(), index=None)
+    selected = st.selectbox("請搜尋代碼或名稱 (例如輸入 2330 或 台積電)", options=stock_df['display'].tolist(), index=None)
 
     if selected:
         target_symbol = selected.split(" ")[0]
@@ -65,24 +65,28 @@ try:
         # 抓取隔日沖樣本數據
         sample_q = f"SELECT Overnight_Alpha, Next_1D_Max FROM cleaned_daily_base WHERE StockID = '{target_symbol}' AND Prev_LU = 1"
         samples = pd.read_sql(sample_q, conn)
+        
+        # 獲取同產業公司名單 (預備給 AI)
+        temp_info_q = f"SELECT sector FROM stock_info WHERE symbol = '{target_symbol}'"
+        sector_res = pd.read_sql(temp_info_q, conn)
+        sector_name = sector_res.iloc[0,0] if not sector_res.empty else "未知"
+        
+        peer_q = f"SELECT symbol, name FROM stock_info WHERE sector = '{sector_name}' AND symbol != '{target_symbol}' LIMIT 15"
+        peers_df = pd.read_sql(peer_q, conn)
+        peers_list = (peers_df['symbol'] + " " + peers_df['name']).tolist()
+        
         conn.close()
 
         if not data_all.empty:
             data = data_all.iloc[0]
-            cols = data.index.tolist()
-
-            def get_val(names):
-                for n in names:
-                    if n in cols: return data[n]
-                return 0
-
-            # 基礎指標獲取
-            r5 = get_val(['Ret_5D', 'Ret_5d', '5日漲跌幅'])
-            r20 = get_val(['Ret_20D', 'Ret_20d', '20日漲跌幅'])
-            r200 = get_val(['Ret_200D', 'Ret_200d', '200日漲跌幅'])
-            vol = get_val(['volatility_20d', 'vol_20', '20日波動率'])
-            dd = get_val(['drawdown_after_high_20d', 'dd_20', '20日回撤'])
-            curr_price = get_val(['收盤', 'Close', 'price'])
+            
+            # 取得顯示指標
+            r5 = data.get('Ret_5D', 0)
+            r20 = data.get('Ret_20D', 0)
+            r200 = data.get('Ret_200D', 0)
+            vol = data.get('volatility_20d', 0)
+            dd = data.get('drawdown_after_high_20d', 0)
+            curr_price = data.get('收盤', 0)
 
             # --- 佈局一：雷達圖與核心指標 ---
             st.divider()
@@ -106,73 +110,65 @@ try:
                 st.subheader("📋 當前關鍵指標")
                 st.write(f"**最新日期**：{data['日期']}")
                 st.write(f"**收盤價格**：{curr_price}")
+                st.write(f"**所屬產業**：{sector_name}")
                 st.write(f"**20D 波動率**：{vol*100:.2f}%")
-                st.write(f"**20D 最大回撤**：{dd*100:.2f}%")
                 st.write(f"**5年漲停次數**：{int(hist['lu'] or 0)} 次")
                 st.write(f"**平均溢價期望**：{(hist['ov'] or 0)*100:.2f}%")
 
-            # --- 佈局二：⚡ 隔日沖專項數據 ---
+            # --- 佈局二：⚡ 隔日沖與族群聯動 ---
             st.divider()
-            st.subheader("⚡ 隔日沖慣性回測 (五年樣本)")
+            c1, c2 = st.columns([2, 1])
             
-            win_rate = 0
-            if hist['lu'] > 0 and not samples.empty:
-                win_count = len(samples[samples['Overnight_Alpha'] > 0])
-                win_rate = (win_count / hist['lu'] * 100)
-                
-                c1, c2, c3 = st.columns(3)
-                c1.metric("隔日開紅機率 (勝率)", f"{win_rate:.1f}%")
-                c2.metric("開盤獲利均值", f"{(samples['Overnight_Alpha'].mean()*100):.2f}%")
-                c3.metric("盤中最高期望值", f"{(samples['Next_1D_Max'].mean()*100):.2f}%")
-                
-                fig_hist = px.histogram(
-                    samples, x=samples['Overnight_Alpha']*100, 
-                    nbins=15, title="隔日開盤利盤分布 (%)",
-                    labels={'x': '利潤 %', 'count': '次數'},
-                    color_discrete_sequence=['#FFD700']
-                )
-                st.plotly_chart(fig_hist, use_container_width=True)
-            else:
-                st.info("該個股過去五年無漲停紀錄，暫無隔日沖數據。")
+            with c1:
+                st.subheader("⚡ 隔日沖慣性分布")
+                if not samples.empty:
+                    fig_hist = px.histogram(
+                        samples, x=samples['Overnight_Alpha']*100, 
+                        nbins=15, title="漲停後隔日開盤利潤分布 (%)",
+                        labels={'x': '利潤 %', 'count': '次數'},
+                        color_discrete_sequence=['#FFD700']
+                    )
+                    st.plotly_chart(fig_hist, use_container_width=True)
+                else:
+                    st.info("該股五年內無漲停紀錄。")
 
-            # --- 佈局三：歷史明細與 AI 報告 ---
+            with c2:
+                st.subheader("🔗 同產業公司")
+                if peers_list:
+                    st.write(", ".join(peers_list[:10]))
+                else:
+                    st.write("暫無相關產業資料")
+
+            # --- 佈局三：AI 專家報告 (含同概念股分析) ---
             st.divider()
-            with st.expander("📅 查看 5 年內漲停/大漲詳細日期"):
-                detail_q = f"SELECT 日期, 收盤, ROUND(Ret_Day*100,2) as '漲幅%', ROUND(Overnight_Alpha*100,2) as '隔日溢價%' FROM cleaned_daily_base WHERE StockID = '{target_symbol}' AND is_limit_up = 1 ORDER BY 日期 DESC"
-                st.dataframe(pd.read_sql(detail_q, sqlite3.connect(target_db)), use_container_width=True, hide_index=True)
-
-            if st.button("🚀 生成 AI 專家深度診斷報告"):
+            if st.button("🚀 生成 AI 專家深度診斷報告 (含同概念股名單)"):
                 if "GEMINI_API_KEY" in st.secrets:
                     try:
-                        # --- AI 模型配置與自動路徑修復 ---
                         genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
+                        # 自動偵測可用模型
                         available_models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
-                        
-                        # 優先級嘗試
-                        target_model = None
-                        for choice in ['models/gemini-1.5-flash', 'gemini-1.5-flash', 'models/gemini-pro']:
-                            if choice in available_models:
-                                target_model = choice
-                                break
-                        
-                        if not target_model: target_model = available_models[0]
-
+                        target_model = next((c for c in ['models/gemini-1.5-flash', 'gemini-1.5-flash', 'models/gemini-pro'] if c in available_models), available_models[0])
                         model = genai.GenerativeModel(target_model)
+                        
                         prompt = f"""
-                        分析股票 {selected}：
-                        - 20D波動率/回撤：{vol*100:.1f}% / {dd*100:.1f}%
-                        - 5年漲停次數：{hist['lu']}
-                        - 隔日沖勝率：{win_rate:.1f}%
-                        - 隔日開盤溢價均值：{(hist['ov'] or 0)*100:.2f}%
-                        請評估該股是否適合『隔日沖交易』，並分析其漲停後的慣性。
+                        你是一位資深的股市投研專家。請針對股票 {selected} 進行深度分析：
+                        1. **核心題材與概念**：這檔股票屬於哪些熱門題材（例如：CPO、液冷、半導體特化等）？
+                        2. **同概念股名單**：除了資料庫標註的「{sector_name}」，請根據市場邏輯列出 3-5 家具備相同題材的台灣上市公司。
+                        3. **隔日沖續航力**：
+                           - 5年漲停次數：{int(hist['lu'] or 0)}
+                           - 隔日開盤溢價均值：{(hist['ov'] or 0)*100:.2f}%
+                           - 盤中最高期望值：{(hist['nxt'] or 0)*100:.2f}%
+                        請給出投資建議，並判斷該股在族群中的地位。
                         """
-                        with st.spinner(f"AI 正在解析 (使用 {target_model})..."):
+                        
+                        with st.spinner(f"AI 正在聯想同概念族群並分析數據..."):
                             response = model.generate_content(prompt)
-                            st.markdown(f"### 🤖 AI 診斷報告\n{response.text}")
+                            st.info(f"### 🤖 AI 深度診斷：{selected}")
+                            st.markdown(response.text)
                     except Exception as e:
-                        st.error(f"AI 啟動失敗: {e}")
+                        st.error(f"AI 分析失敗: {e}")
                 else:
                     st.warning("請先設定 GEMINI_API_KEY")
 
 except Exception as e:
-    st.error(f"模組載入失敗: {e}")
+    st.error(f"模組執行異常: {e}")
