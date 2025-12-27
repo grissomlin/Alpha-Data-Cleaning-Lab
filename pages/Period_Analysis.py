@@ -2,6 +2,7 @@ import streamlit as st
 import sqlite3
 import pandas as pd
 import plotly.express as px
+import google.generativeai as genai
 import os
 
 # 1. 頁面配置
@@ -20,8 +21,7 @@ def get_market_link(symbol, market):
     else:
         return f"https://www.tradingview.com/symbols/{symbol}"
 
-# 3. 讀取資料庫 (假設主頁面已經下載好 db)
-# 這裡從側邊欄繼承市場選擇，若無則預設 TW
+# 3. 讀取資料庫
 market_option = st.sidebar.selectbox("🚩 選擇市場", ("TW", "JP", "CN", "US", "HK", "KR"), key="period_market")
 db_map = {"TW":"tw_stock_warehouse.db", "JP":"jp_stock_warehouse.db", "CN":"cn_stock_warehouse.db", 
           "US":"us_stock_warehouse.db", "HK":"hk_stock_warehouse.db", "KR":"kr_stock_warehouse.db"}
@@ -35,8 +35,6 @@ conn = sqlite3.connect(target_db)
 
 # 4. 抓取最新日期的統計數據
 try:
-    # 這裡的欄位名稱需與你資料庫中的一致 (例如 Ret_5D, Ret_20D, Ret_200D 等)
-    # 若欄位不同，請根據你之前的 CSV 欄位名稱修改
     query = """
     SELECT StockID, 日期, Ret_Day, 
            (SELECT name FROM stock_info WHERE symbol = StockID) as Name,
@@ -56,7 +54,6 @@ try:
     # --- 九宮格圖表 (3x3) ---
     st.subheader("📊 滾動與日曆周期分布")
     
-    # 定義九宮格配置
     metrics = [
         ('Ret_5D', '滾動 5D'), ('Ret_20D', '滾動 20D'), ('Ret_200D', '滾動 200D'),
         ('Ret_W', '本周 (W)'), ('Ret_M', '本月 (M)'), ('Ret_Y', '本年 (Y)'),
@@ -67,7 +64,6 @@ try:
     for idx, (col_name, label) in enumerate(metrics):
         with rows[idx//3][idx%3]:
             if col_name in df.columns:
-                # 繪製直方圖
                 fig = px.histogram(df, x=col_name, title=f"{label} 分布", 
                                    nbins=50, color_discrete_sequence=['#3366ff'])
                 fig.update_layout(margin=dict(l=20, r=20, t=40, b=20), height=250)
@@ -77,18 +73,15 @@ try:
     st.divider()
     st.subheader("📦 強勢分箱清單 (本月累計)")
     
-    # 建立分箱
     bins = [-float('inf'), -0.1, -0.05, 0, 0.05, 0.1, 0.2, float('inf')]
     labels = ["慘跌(<-10%)", "回檔(-10%~-5%)", "平盤(-5%~0%)", "轉強(0~5%)", "強勢(5~10%)", "噴發(10~20%)", "妖股(>20%)"]
     df['Bin'] = pd.cut(df['Ret_M'], bins=bins, labels=labels)
 
-    # 用 Tabs 顯示不同箱子
     bin_tabs = st.tabs(labels[::-1]) # 從強到弱排列
     for i, label in enumerate(labels[::-1]):
         with bin_tabs[i]:
             subset = df[df['Bin'] == label][['StockID', 'Name', 'Ret_M', 'drawdown_after_high_20d']]
             if not subset.empty:
-                # 加入超連結處理
                 subset['連結'] = subset['StockID'].apply(lambda x: get_market_link(x, market_option))
                 st.dataframe(
                     subset.sort_values('Ret_M', ascending=False),
@@ -98,9 +91,64 @@ try:
             else:
                 st.write("目前無符合條件的股票")
 
+    # --- 5. AI 週期動能診斷 (新增功能) ---
+    st.divider()
+    if st.button(f"🤖 啟動 {market_option} 市場週期動能 AI 診斷"):
+        api_key = st.secrets.get("GEMINI_API_KEY")
+        if not api_key:
+            st.warning("⚠️ 請先在 Streamlit Secrets 中設定 GEMINI_API_KEY")
+        else:
+            try:
+                genai.configure(api_key=api_key)
+                all_models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
+                target_model = next((m for m in ['models/gemini-1.5-flash', 'gemini-1.5-flash'] if m in all_models), all_models[0])
+                model = genai.GenerativeModel(target_model)
+                
+                # 準備市場分佈摘要給 AI
+                bin_summary = df['Bin'].value_counts().to_string()
+                avg_ret_5d = df['Ret_5D'].mean() * 100
+                avg_ret_20d = df['Ret_20D'].mean() * 100
+                
+                prompt = f"""你是一位資深量化分析師。請分析 {market_option} 市場目前的週期動能分佈：
+市場分佈摘要 (本月累積漲跌幅分箱)：
+{bin_summary}
+
+額外指標：
+- 滾動 5 日平均漲跌幅：{avg_ret_5d:.2f}%
+- 滾動 20 日平均漲跌幅：{avg_ret_20d:.2f}%
+
+請根據以上數據：
+1. 判斷目前市場處於「過熱」、「健康」還是「低迷」狀態？
+2. 針對「妖股」與「噴發」箱體內的個股，給予目前的風險評估。
+3. 給予短中線的操作建議。"""
+                
+                with st.spinner(f"AI 正在解析市場動能 (模型: {target_model})..."):
+                    response = model.generate_content(prompt)
+                    st.info("### 🤖 市場週期動能 AI 診斷報告")
+                    st.markdown(response.text)
+                    
+                    # 提問詞複製區
+                    st.divider()
+                    st.subheader("📋 複製提問詞 (至 ChatGPT / Claude)")
+                    st.caption("您可以複製下方指令，並將數據提供給其他 AI 進行交叉驗證：")
+                    st.code(prompt.strip(), language="text")
+            except Exception as e:
+                st.error(f"AI 分析失敗: {e}")
+
 except Exception as e:
     st.error(f"圖表生成失敗: {e}")
     st.info("請檢查資料庫欄位是否包含 Ret_5D, Ret_20D 等滾動數據。")
 
 finally:
     conn.close()
+
+# --- 6. 底部快速連結 (Footer) ---
+st.divider()
+st.markdown("### 🔗 快速資源連結")
+col_link1, col_link2, col_link3 = st.columns(3)
+with col_link1:
+    st.page_link("https://vocus.cc/article/694f813afd8978000101e75a", label="⚙️ 環境與 AI 設定教學", icon="🛠️")
+with col_link2:
+    st.page_link("https://vocus.cc/article/694f88bdfd89780001042d74", label="📖 儀表板功能詳解", icon="📊")
+with col_link3:
+    st.page_link("https://github.com/grissomlin/Alpha-Data-Cleaning-Lab", label="💻 GitHub 專案原始碼", icon="🐙")
