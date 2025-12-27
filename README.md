@@ -125,27 +125,6 @@ Markdown
 
 請在專案中設定以下變數（`.env` 或 Streamlit Secrets）：
 
-☕ 支持贊助與免責聲明
-
-這是一個由普通上班族獨立維護的開源計畫。如果您覺得這個工具對您的投資有幫助，歡迎請我喝杯咖啡，給予我持續優化程式碼的動力！
-
-* **[👉 點此透過方格子贊助支持本專案](https://vocus.cc/pay/donate/606146a3fd89780001ba32e9?donateSourceType=article&donateSourceRefID=694f6534fd89780001f9c6ad)**
-
----
-
-
-## 📄 免責聲明 (Disclaimer)
-
-本專案僅供研究與教育用途，所提供之數據不構成任何投資建議。投資人應自行評估風險，並對其投資結果負責。
-<img width="256" height="463" alt="image" src="https://github.com/user-attachments/assets/42ab49e7-8a56-4e9b-a196-7aee4872737c" />
-<img width="1501" height="677" alt="image" src="https://github.com/user-attachments/assets/f7b50c84-0065-48a6-9b83-5fccc25bc966" />
-<img width="1557" height="878" alt="image" src="https://github.com/user-attachments/assets/7db944ec-a24f-4c61-88fe-23e8d0b7e0c1" />
-```toml
-# 核心大腦 (必填)
-GEMINI_API_KEY = "您的_Gemini_API_Key" #
-
-# Google Drive 資料庫同步 (選配件)
-GDRIVE_SERVICE_ACCOUNT = "您的_Service_Account_JSON_內容" #
 
 '
 
