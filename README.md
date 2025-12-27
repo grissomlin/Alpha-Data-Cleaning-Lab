@@ -21,10 +21,11 @@
 
 ---
 
-## 📖 快速上手與教學
+## 📖 快速上手與相關資源
 
-為了讓您能更順利地架設並使用本系統，建議參考以下在方格子（vocus）上的圖文教學：
+為了讓您能更順利地架設並使用本系統，建議參考以下資源：
 
+* 🌐 **正式版儀表板**：[點此立即體驗](https://alpha-data-cleaning-lab-c5mtpheerynowxcw2vtzew.streamlit.app/)
 * ⚙️ **環境與 AI 設定教學**：[點此閱讀文章](https://vocus.cc/article/694f813afd8978000101e75a)
 * 📖 **儀表板功能詳解**：[點此閱讀文章](https://vocus.cc/article/694f88bdfd89780001042d74)
 
