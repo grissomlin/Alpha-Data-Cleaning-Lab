@@ -60,7 +60,7 @@ GDRIVE_SERVICE_ACCOUNT = "您的_Service_Account_JSON_內容"
 支持與贊助 (Donate)
 這是一個由普通上班族獨立維護的開源計畫。如果您覺得這個工具對您的投資有幫助，歡迎請我喝杯咖啡，給予我持續優化程式碼的動力！
 
-👉 點此透過方格子贊助支持本專案
+👉 [點此透過方格子贊助支持本專案([https://vocus.cc/article/694f813afd8978000101e75a](https://vocus.cc/pay/donate/606146a3fd89780001ba32e9?donateSourceType=article&donateSourceRefID=694f88bdfd89780001042d74))
 
 免責聲明 (Disclaimer)
 本專案所提供的數據分析與 AI 診斷結果僅供參考，不構成投資建議。股市有風險，投資人應獨立審慎評估，並自負投資損益。
