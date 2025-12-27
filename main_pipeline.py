@@ -27,7 +27,7 @@ class AlphaDataPipeline:
 
     def find_file_id_by_name(self, filename):
         """
-        🚀 恢復自動化：透過檔名在 Google Drive 搜尋檔案 ID
+        🚀 透過檔名在 Google Drive 搜尋檔案 ID
         """
         query = f"name = '{filename}' and trashed = false"
         results = self.service.files().list(q=query, fields="files(id, name)").execute()
@@ -37,9 +37,7 @@ class AlphaDataPipeline:
         return files[0]['id']
 
     def download_db(self):
-        # 自動找 ID
         file_id = self.find_file_id_by_name(self.db_name)
-        
         print(f"📥 偵測到雲端檔案 ID: {file_id}，開始下載...")
         request = self.service.files().get_media(fileId=file_id)
         fh = io.FileIO(self.db_name, 'wb')
@@ -49,11 +47,28 @@ class AlphaDataPipeline:
             status, done = downloader.next_chunk()
         print(f"✅ {self.db_name} 下載成功")
 
-    def upload_db(self):
-        # 自動找 ID
-        file_id = self.find_file_id_by_name(self.db_name)
+    def _ensure_schema_upgraded(self, conn):
+        """
+        🚀 確保資料庫 Schema 包含炸板分析所需的欄位 (Ret_High)
+        """
+        cursor = conn.cursor()
+        cursor.execute("PRAGMA table_info(cleaned_daily_base)")
+        columns = [column[1] for column in cursor.fetchall()]
         
-        # 🚀 保留解決美國大檔案的 Resumable 技術
+        # 如果沒有 Ret_High 欄位，則新增
+        if 'Ret_High' not in columns:
+            print(f"🛠️  正在為 {self.market_abbr} 資料庫新增 Ret_High 欄位...")
+            try:
+                # SQLite 增加欄位語法
+                cursor.execute("ALTER TABLE cleaned_daily_base ADD COLUMN Ret_High REAL")
+                conn.commit()
+                print("✅ Ret_High 欄位新增成功")
+            except Exception as e:
+                print(f"⚠️ 欄位新增異常 (可能已存在或表格鎖定): {e}")
+
+    def upload_db(self):
+        file_id = self.find_file_id_by_name(self.db_name)
+        # 🚀 使用 Resumable 技術處理大檔案上傳
         media = MediaFileUpload(self.db_name, mimetype='application/octet-stream', resumable=True)
         request = self.service.files().update(fileId=file_id, media_body=media)
         
@@ -66,30 +81,42 @@ class AlphaDataPipeline:
         print(f"✅ {self.market_abbr} 雲端同步成功")
 
     def run_process(self):
+        # 1. 下載
         self.download_db()
+        
         conn = sqlite3.connect(self.db_name)
         try:
+            # 2. 自動升級資料庫結構
+            self._ensure_schema_upgraded(conn)
+
+            # 3. 執行核心運算引擎 (計算指標並填入 Ret_High)
             rules = MarketRuleRouter.get_rules(self.market_abbr)
             engine = AlphaCoreEngine(conn, rules, self.market_abbr)
             summary_msg = engine.execute()
+            
+            # 確保寫入並關閉連線，避免上傳時檔案被佔用
             conn.close()
             
+            # 4. 上傳回雲端
             self.upload_db()
             
-            # 生成摘要供報告使用
+            # 5. 生成報告摘要
             summary_file = f"summary_{self.market_abbr.lower()}_stock_warehouse.txt"
             with open(summary_file, "w", encoding="utf-8") as f:
                 f.write(str(summary_msg))
+            
             return summary_msg
+
         except Exception as e:
-            if conn: conn.close()
+            if conn:
+                conn.close()
+            print(f"❌ 流程執行失敗: {e}")
             raise e
 
 if __name__ == "__main__":
     target_market = os.environ.get("MARKET_TYPE")
     if not target_market:
-        # 如果沒有設定變數，嘗試從 matrix 指令抓取（這對應你的 YAML 改動）
-        print("❌ 錯誤：未設定 MARKET_TYPE")
+        print("❌ 錯誤：未設定 MARKET_TYPE 環境變數")
         exit(1)
     
     pipeline = AlphaDataPipeline(target_market)
