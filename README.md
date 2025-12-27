@@ -40,14 +40,6 @@
 * **雷達圖分析**：動能、穩定度、防禦力三維評分。
 * **股性統計**：2023 至今的漲停次數、炸板率與隔日溢價期望值。
 
-### 🚀 今日漲停戰情室 (`Today_Limit_Up.py`)
-* **連板追蹤**：即時掌握市場標竿股。
-* **短線風控**：AI 針對籌碼壓力與「妖性」給予明日操作建議。
-
-### 🛡️ 風險指標診斷 (`Risk_Metrics.py`)
-* **回撤分析**：視覺化呈現 10D/20D 的拉回風險。
-* **抗跌韌性區**：篩選月報酬為正且極度穩定的避險標的。
-
 ---
 
 ## ⚙️ 環境變數設定
@@ -56,13 +48,7 @@
 
 ```toml
 # 核心大腦 (必填)
-GEMINI_API_KEY = "您的_Gemini_API_Key" #
+GEMINI_API_KEY = "您的_Gemini_API_Key"
 
-# Google Drive 資料庫同步 (選配件)
-GDRIVE_SERVICE_ACCOUNT = "您的_Service_Account_JSON_內容" #
-
-'''
-
-
-
-
+# Google Drive 資料庫同步 (選配)
+GDRIVE_SERVICE_ACCOUNT = "您的_Service_Account_JSON_內容"
