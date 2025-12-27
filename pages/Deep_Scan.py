@@ -141,22 +141,22 @@ try:
                     links = [f"[{row['symbol']}]({current_url_base.replace('{s}', row['symbol'].split('.')[0])})" for _, row in peers_df.iterrows()]
                     st.caption(" ".join(links))
 
-            # --- 下方：AI 深度診斷按鈕 ---
+            # --- 下方：AI 深度診斷按鈕 (修正 404 問題) ---
             st.divider()
             if st.button("🚀 詢問 AI 專家對該股的深度判斷"):
                 if "GEMINI_API_KEY" in st.secrets:
                     try:
                         genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
                         
-                        # 使用 -latest 後綴解決 404 Model Not Found 問題
-                        model = genai.GenerativeModel('gemini-1.5-flash-latest')
+                        # 🚀 修正點：使用不帶 latest 後綴的標準模型名稱，提高相容性
+                        model = genai.GenerativeModel('gemini-1.5-flash')
                         
                         prompt = f"""
                         你是資深量化交易員。請針對股票 {selected} 進行深度診斷：
                         數據表現：
-                        - 成功漲停：{int(hist['lu'])} 次
-                        - 炸板次數：{int(hist['failed_lu'])} 次
-                        - 隔日溢價期望值：{(hist['ov'] or 0)*100:.2f}%
+                        - 2023至今成功漲停：{int(hist['lu'])} 次
+                        - 2023至今炸板次數：{int(hist['failed_lu'])} 次
+                        - 漲停隔日溢價期望值：{(hist['ov'] or 0)*100:.2f}%
                         - 20日波動率：{vol*100:.2f}%
                         
                         請結合「炸板次數」分析該股的籌碼壓力，判斷是否具備強勢股基因，並給予短線風控建議。
@@ -167,7 +167,14 @@ try:
                             st.info("### 🤖 AI 專家診斷報告")
                             st.markdown(response.text)
                     except Exception as e:
-                        st.error(f"AI 服務暫時不可用: {e}")
+                        # 備援方案：若 1.5-flash 失敗，嘗試 gemini-pro
+                        try:
+                            model = genai.GenerativeModel('gemini-pro')
+                            response = model.generate_content(prompt)
+                            st.info("### 🤖 AI 專家診斷報告 (使用備援模型)")
+                            st.markdown(response.text)
+                        except Exception as e2:
+                            st.error(f"AI 服務暫時不可用，請檢查 API Key 或稍後再試。錯誤: {e2}")
                 else:
                     st.warning("請在 Streamlit Secrets 中設定 GEMINI_API_KEY")
             
