@@ -1,6 +1,10 @@
 name: Alpha-Data-Refinery-Global-V6
 
 on:
+  # 💡 關鍵新增：接收來自 Warehouse 的自動連動信號
+  repository_dispatch:
+    types: [warehouse_sync_complete]
+    
   workflow_dispatch:
     inputs:
       manual_market:
@@ -17,6 +21,7 @@ on:
           - kr_stock_warehouse
           - cn_stock_warehouse
   schedule:
+    # 💡 台北時間凌晨 05:00 (作為全市場保底更新)
     - cron: '0 21 * * *'
 
 jobs:
@@ -25,11 +30,15 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # 🚀 簡化後的邏輯：確保列表一定會生成
+        # 🚀 智能選擇邏輯：
+        # 1. 若為連動觸發 (repository_dispatch)，只跑訊號指定的資料庫
+        # 2. 若為手動 (all) 或定時排程 (schedule)，跑全市場
+        # 3. 若為手動選定特定市場，則跑該市場
         market_db: ${{ 
-          (github.event.inputs.manual_market == 'all' || github.event_name == 'schedule') && 
+          (github.event_name == 'repository_dispatch') && fromJSON(format('["{0}"]', github.event.client_payload.market_db)) || 
+          ((github.event.inputs.manual_market == 'all' || github.event_name == 'schedule') && 
           fromJSON('["tw_stock_warehouse", "jp_stock_warehouse", "us_stock_warehouse", "cn_stock_warehouse", "kr_stock_warehouse", "hk_stock_warehouse"]') || 
-          fromJSON(format('["{0}"]', github.event.inputs.manual_market)) 
+          fromJSON(format('["{0}"]', github.event.inputs.manual_market)))
           }}
     
     steps:
@@ -50,10 +59,13 @@ jobs:
         env:
           GDRIVE_SERVICE_ACCOUNT: ${{ secrets.GDRIVE_SERVICE_ACCOUNT }}
         run: |
-          # 提取簡稱並轉大寫
+          # 💡 核心轉換：將資料庫名稱轉換為 Python 指令需要的 MARKET_TYPE 變數
+          # 例如：tw_stock_warehouse -> MARKET_TYPE=TW
           export MARKET_TYPE=$(echo "${{ matrix.market_db }}" | cut -d'_' -f1 | tr '[:lower:]' '[:upper:]')
-          echo "🚀 啟動任務: $MARKET_TYPE"
-          python main_pipeline.py
+          echo "🚀 市場代號判定: $MARKET_TYPE"
+          
+          # 使用 -u 讓 Log 即時輸出
+          python -u main_pipeline.py
 
       - name: Upload Summary Artifact
         if: always()
