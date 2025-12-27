@@ -25,24 +25,26 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # 修正語法：使用 fromJSON 和 if 函數
         market_db: ${{ fromJSON( github.event.inputs.manual_market == 'all' || github.event_name == 'schedule' && '["tw_stock_warehouse", "jp_stock_warehouse", "us_stock_warehouse", "cn_stock_warehouse", "kr_stock_warehouse", "hk_stock_warehouse"]' || format('["{0}"]', github.event.inputs.manual_market) ) }}
     
     steps:
       - name: Checkout Code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Set up Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
       - name: Install Dependencies
-        run: pip install pandas numpy google-api-python-client google-auth python-dotenv requests
+        run: |
+          python -m pip install --upgrade pip
+          pip install pandas numpy google-api-python-client google-auth python-dotenv requests google-generativeai
 
       - name: Run Pipeline
         env:
           GDRIVE_SERVICE_ACCOUNT: ${{ secrets.GDRIVE_SERVICE_ACCOUNT }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         run: |
           # 提取簡稱並轉大寫
           export MARKET_TYPE=$(echo "${{ matrix.market_db }}" | cut -d'_' -f1 | tr '[:lower:]' '[:upper:]')
@@ -62,19 +64,29 @@ jobs:
     if: always()
     steps:
       - name: Checkout Code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
+
       - name: Set up Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+
+      - name: Install Dependencies for Reporter
+        run: |
+          python -m pip install --upgrade pip
+          pip install requests pandas
+
       - name: Download All Summaries
         uses: actions/download-artifact@v4
         with:
           path: all_summaries
           pattern: summary-*
           merge-multiple: true
+
       - name: Send Final Telegram Report
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-        run: python batch_reporter.py
+        run: |
+          # 進入下載資料夾確保抓得到檔案
+          python batch_reporter.py
