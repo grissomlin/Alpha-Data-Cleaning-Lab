@@ -50,7 +50,7 @@
 
 免責聲明 (Disclaimer)
 本專案所提供的數據分析與 AI 診斷結果僅供參考，不構成投資建議。股市有風險，投資人應獨立審慎評估，並自負投資損益。
-## ⚙️ 環境變數設定
+
 
 <img width="1790" height="816" alt="image" src="https://github.com/user-attachments/assets/3892f31b-e0bb-4b95-9f30-c1d32adf8184" />
 <img width="1579" height="725" alt="image" src="https://github.com/user-attachments/assets/4b0d6fb0-1d80-4ab0-80ff-b6758021dd0b" />
@@ -58,7 +58,7 @@
 <img width="642" height="564" alt="image" src="https://github.com/user-attachments/assets/835c939e-fd1e-4585-841d-2b3d5b5b9292" />
 
 
-
+## ⚙️ 環境變數設定
 請在專案中設定以下變數（`.env` 或 Streamlit Secrets）：
 
 ```toml
