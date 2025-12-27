@@ -128,44 +128,56 @@ try:
                     links = [f"[{row['symbol']}]({current_url_base.replace('{s}', row['symbol'].split('.')[0])})" for _, row in peers_df.iterrows()]
                     st.caption(" ".join(links))
 
-            # --- AI 深度診斷 (自動偵測模型邏輯) ---
+            # --- AI 深度診斷 ---
             st.divider()
             if st.button(f"🚀 詢問 AI 專家深度判斷：{selected}"):
                 api_key = st.secrets.get("GEMINI_API_KEY")
                 if not api_key:
-                    st.warning("⚠️ 請設定 GEMINI_API_KEY")
+                    st.warning("⚠️ 請先在 Streamlit Secrets 中設定 GEMINI_API_KEY")
                 else:
                     try:
                         genai.configure(api_key=api_key)
                         
-                        # 核心修復：列出可用模型並自動選擇
                         all_models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
-                        target_model = None
-                        for candidate in ['models/gemini-1.5-pro', 'models/gemini-1.5-flash', 'gemini-1.5-pro', 'gemini-1.5-flash']:
-                            if candidate in all_models:
-                                target_model = candidate
-                                break
-                        if not target_model: target_model = all_models[0]
+                        target_model = next((m for m in ['models/gemini-1.5-pro', 'models/gemini-1.5-flash', 'gemini-1.5-pro', 'gemini-1.5-flash'] if m in all_models), all_models[0])
                         
                         model = genai.GenerativeModel(target_model)
                         
                         prompt = f"""
-                        你是資深交易專家。請針對股票 {selected} 進行診斷：
-                        數據指標 (2023至今)：
-                        - 成功漲停：{int(hist['lu'])} 次
-                        - 炸板次數：{int(hist['failed_lu'])} 次
-                        - 隔日溢價期望值：{(hist['ov'] or 0)*100:.2f}%
-                        - 20日波動率：{vol*100:.2f}%
-                        
-                        請結合「炸板率」與「波動率」分析該股的籌碼壓力與妖性，判斷適不適合隔日沖，並給予短線風控建議。
+你是資深交易專家。請針對股票 {selected} 進行診斷：
+數據指標 (2023至今)：
+- 成功漲停：{int(hist['lu'])} 次
+- 炸板次數：{int(hist['failed_lu'])} 次
+- 隔日溢價期望值：{(hist['ov'] or 0)*100:.2f}%
+- 20日波動率：{vol*100:.2f}%
+
+請結合「炸板率」與「波動率」分析該股的籌碼壓力與妖性，判斷適不適合隔日沖，並給予短線風控建議。
                         """
                         
                         with st.spinner(f"AI 正在解析 (模型: {target_model})..."):
                             response = model.generate_content(prompt)
                             st.info("### 🤖 AI 專家診斷報告")
                             st.markdown(response.text)
+                            
+                            # --- 新增：提問詞複製區塊 ---
+                            st.divider()
+                            st.subheader("📋 複製提問詞 (至 ChatGPT / Claude)")
+                            st.caption("如果您想使用其他 AI 模型進行交叉驗證，可以複製下方指令：")
+                            st.code(prompt.strip(), language="text")
+
                     except Exception as e:
                         st.error(f"AI 分析失敗: {e}")
             
 except Exception as e:
     st.error(f"系統異常: {e}")
+
+# --- 3. 底部快速連結 (Footer) ---
+st.divider()
+st.markdown("### 🔗 快速資源連結")
+col_link1, col_link2, col_link3 = st.columns(3)
+with col_link1:
+    st.page_link("https://vocus.cc/article/694f813afd8978000101e75a", label="⚙️ 環境與 AI 設定教學", icon="🛠️")
+with col_link2:
+    st.page_link("https://vocus.cc/article/694f88bdfd89780001042d74", label="📖 儀表板功能詳解", icon="📊")
+with col_link3:
+    st.page_link("https://github.com/grissomlin/Alpha-Data-Cleaning-Lab", label="💻 GitHub 專案原始碼", icon="🐙")
