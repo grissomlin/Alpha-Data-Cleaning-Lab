@@ -68,7 +68,7 @@ GEMINI_API_KEY = "您的_Gemini_API_Key"
 # Google Drive 資料庫同步 (選配)
 GDRIVE_SERVICE_ACCOUNT = "您的_Service_Account_JSON_內容"
 
-
+PARENT_FOLDER_ID  = "共用資料夾ID"
 
 
 
